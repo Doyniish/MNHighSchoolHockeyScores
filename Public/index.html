@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Hockey Scores</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header class="app-header">
+    <div class="title">Hockey Scores</div>
+    <div class="controls">
+      <button id="prevDay" aria-label="Previous Day">◀</button>
+      <input type="date" id="datePicker" />
+      <button id="nextDay" aria-label="Next Day">▶</button>
+      <div class="spacer"></div>
+      <input type="text" id="teamSearch" placeholder="Search team…" />
+      <button id="addTeam">Add</button>
+    </div>
+    <div id="activeTeams" class="chips"></div>
+  </header>
+
+  <main id="root" class="content">
+    <div class="loading" id="loading">Loading…</div>
+    <div class="games" id="games"></div>
+  </main>
+
+  <footer class="app-footer">
+    <span id="liveIndicator" class="live hidden">LIVE</span>
+    <span class="muted">Auto-refreshing every 60s</span>
+  </footer>
+
+  <script src="app.js" defer></script>
+</body>
+</html>
