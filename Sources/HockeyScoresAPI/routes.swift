@@ -12,7 +12,7 @@ func routes(_ app: Application) throws {
             req.logger.error("index.html not found", metadata: ["path": .string(filePath)])
             throw Abort(.notFound, reason: "index.html not found at \(filePath)")
         }
-        var res = req.fileio.streamFile(at: filePath)
+        let res = try await req.fileio.asyncStreamFile(at: filePath)
         res.headers.replaceOrAdd(name: .contentType, value: "text/html; charset=utf-8")
         return res
     }
