@@ -4,6 +4,7 @@ import NIOCore
 import NIOPosix
 import Foundation
 import Fluent
+import FluentSQL
 
 @main
 enum Entrypoint {
@@ -38,7 +39,7 @@ enum Entrypoint {
                 let html = String(decoding: bytes, as: UTF8.self)
                 let items = ScoresParser.parseScores(from: html)
 
-                // Save fetched scores to database
+                // Save fetched scores to database with normalized date (midnight UTC)
                 for item in items {
                     let game = Game(
                         externalId: item.id,
@@ -58,8 +59,13 @@ enum Entrypoint {
             }
 
             app.get("scores") { req async throws -> [ScoreItem] in
+                // Normalize today's date to midnight UTC
+                let calendar = Calendar.current
                 let today = Date()
-                _ = try? await fetchAndSaveScores(for: today, on: req.db)
+                let components = calendar.dateComponents([.year, .month, .day], from: today)
+                let normalizedToday = calendar.date(from: components) ?? today
+                
+                _ = try? await fetchAndSaveScores(for: normalizedToday, on: req.db)
                 let games = try await Game.query(on: req.db).all()
                 return games.map { $0.toScoreItem() }
             }
@@ -77,21 +83,31 @@ enum Entrypoint {
                 else {
                     throw Abort(.badRequest, reason: "Invalid date parameters")
                 }
-                // zero-pad month/day for consistency if needed elsewhere
-                let mm = String(format: "%02d", month)
-                let dd = String(format: "%02d", day)
-                req.logger.info("Fetching scores for date: \(year)-\(mm)-\(dd)")
 
-                // The legacy.hockey daily view URL doesn't take date components directly; it uses the selected day slider.
-                // If a direct date URL is available, replace this base with the date-specific endpoint. For now we reuse the same league/subseason page.
-                let scoresURL = URI(string: "https://www.legacy.hockey/schedule/day/league_instance/224377?subseason=948428")
-                let response = try await req.client.get(scoresURL)
-                guard response.status == .ok, var body = response.body else {
-                    return []
+                // Create a date for midnight UTC on the requested date
+                let calendar = Calendar(identifier: .gregorian)
+                var components = DateComponents()
+                components.year = year
+                components.month = month
+                components.day = day
+                components.hour = 0
+                components.minute = 0
+                components.second = 0
+                components.timeZone = TimeZone(abbreviation: "UTC")
+                
+                guard let targetDate = calendar.date(from: components) else {
+                    throw Abort(.badRequest, reason: "Invalid date")
                 }
-                let bytes = body.readBytes(length: body.readableBytes) ?? []
-                let html = String(decoding: bytes, as: UTF8.self)
-                return ScoresParser.parseScores(from: html)
+                
+                let nextDay = calendar.date(byAdding: .day, value: 1, to: targetDate) ?? targetDate
+
+                // Query database for games on this specific date using date range
+                let games = try await Game.query(on: req.db)
+                    .filter(\.$gameDate, .greaterThanOrEqual, targetDate)
+                    .filter(\.$gameDate, .lessThan, nextDay)
+                    .all()
+
+                return games.map { $0.toScoreItem() }
             }
 
             // GET /scores/team/:name -> filter by a single team (case-insensitive contains)
