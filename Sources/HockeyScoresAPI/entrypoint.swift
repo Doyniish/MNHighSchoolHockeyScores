@@ -3,6 +3,7 @@ import Logging
 import NIOCore
 import NIOPosix
 import Foundation
+import Fluent
 
 @main
 enum Entrypoint {
@@ -25,18 +26,45 @@ enum Entrypoint {
             // Serve files from Public/
             app.middleware.use(FileMiddleware(publicDirectory: app.directory.publicDirectory))
 
-            app.get("scores") { req async throws -> [ScoreItem] in
+            // Helper function to fetch and save scores
+            @Sendable
+            func fetchAndSaveScores(for date: Date, on db: any Database) async throws -> [ScoreItem] {
                 let scoresURL = URI(string: "https://www.legacy.hockey/schedule/day/league_instance/224377?subseason=948428")
-                let response = try await req.client.get(scoresURL)
+                let response = try await app.client.get(scoresURL)
                 guard response.status == .ok, var body = response.body else {
                     return []
                 }
                 let bytes = body.readBytes(length: body.readableBytes) ?? []
                 let html = String(decoding: bytes, as: UTF8.self)
-                return ScoresParser.parseScores(from: html)
+                let items = ScoresParser.parseScores(from: html)
+
+                // Save fetched scores to database
+                for item in items {
+                    let game = Game(
+                        externalId: item.id,
+                        gameDate: date,
+                        visitorTeam: item.visitorTeam,
+                        visitorScore: item.visitorScore,
+                        homeTeam: item.homeTeam,
+                        homeScore: item.homeScore,
+                        location: item.location,
+                        status: item.status,
+                        statusLabel: item.statusLabel,
+                        gameURL: item.gameURL
+                    )
+                    try await game.save(on: db)
+                }
+                return items
             }
 
-            // GET /scores/:year/:month/:day -> returns parsed scores for a specific date
+            app.get("scores") { req async throws -> [ScoreItem] in
+                let today = Date()
+                _ = try? await fetchAndSaveScores(for: today, on: req.db)
+                let games = try await Game.query(on: req.db).all()
+                return games.map { $0.toScoreItem() }
+            }
+
+            // GET /scores/:year/:month/:day -> returns scores for a specific date
             app.get("scores", ":year", ":month", ":day") { req async throws -> [ScoreItem] in
                 guard let yearStr = req.parameters.get("year"),
                       let monthStr = req.parameters.get("month"),

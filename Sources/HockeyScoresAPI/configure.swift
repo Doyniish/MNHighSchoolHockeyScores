@@ -19,6 +19,7 @@ public func configure(_ app: Application) async throws {
     ), as: .psql)
 
     app.migrations.add(CreateTodo())
+    app.migrations.add(CreateGame())
 
     app.views.use(.leaf)
 
