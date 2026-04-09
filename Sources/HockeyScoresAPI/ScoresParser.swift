@@ -97,25 +97,47 @@ private extension String {
     }
     func trimmedHTMLText() -> String { self.strippedTags().collapsedWhitespace() }
 }
-private extension ScoresParser {
-    static func firstMatch(in text: String, pattern: String) -> String? {
-        guard let regex = try? NSRegularExpression(pattern: pattern, options: []) else { return nil }
-        let ns = text as NSString
-        guard let m = regex.firstMatch(in: text, options: [], range: NSRange(location: 0, length: ns.length)) else { return nil }
-        guard m.numberOfRanges > 1 else { return nil }
-        return ns.substring(with: m.range(at: 1))
+
+// Public helper methods for string processing
+extension String {
+    public func publicStrippedTags() -> String {
+        return self.replacingOccurrences(of: "<[^>]+>", with: " ", options: .regularExpression)
+            .replacingOccurrences(of: "&nbsp;", with: " ")
     }
+    public func publicCollapsedWhitespace() -> String {
+        return self.replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+    public func publicTrimmedHTMLText() -> String { self.publicStrippedTags().publicCollapsedWhitespace() }
+}
+private extension ScoresParser {
+    @discardableResult
+    static func firstMatch(in text: String, pattern: String) -> String? {
+        let regex = try? NSRegularExpression(pattern: pattern, options: [])
+        let range = NSRange(text.startIndex..., in: text)
+        guard let match = regex?.firstMatch(in: text, options: [], range: range),
+              let range = Range(match.range(at: 1), in: text) else { return nil }
+        return String(text[range])
+    }
+
     static func allMatches(in text: String, pattern: String) -> [String] {
-        guard let regex = try? NSRegularExpression(pattern: pattern, options: []) else { return [] }
-        let ns = text as NSString
-        let matches = regex.matches(in: text, options: [], range: NSRange(location: 0, length: ns.length))
-        return matches.compactMap { m in
-            guard m.numberOfRanges > 1 else { return nil }
-            return ns.substring(with: m.range(at: 1))
+        let regex = try? NSRegularExpression(pattern: pattern, options: [])
+        let range = NSRange(text.startIndex..., in: text)
+        let matches = regex?.matches(in: text, options: [], range: range) ?? []
+        return matches.compactMap { match -> String? in
+            guard let range = Range(match.range(at: 1), in: text) else { return nil }
+            return String(text[range])
         }
     }
+
     static func allNumberMatches(in text: String, pattern: String) -> [Int] {
-        return allMatches(in: text, pattern: pattern).compactMap { Int($0) }
+        let regex = try? NSRegularExpression(pattern: pattern, options: [])
+        let range = NSRange(text.startIndex..., in: text)
+        let matches = regex?.matches(in: text, options: [], range: range) ?? []
+        return matches.compactMap { match -> Int? in
+            guard let range = Range(match.range(at: 1), in: text) else { return nil }
+            return Int(String(text[range]))
+        }
     }
 }
 

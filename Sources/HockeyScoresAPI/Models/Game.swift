@@ -6,6 +6,7 @@ final class Game: Model, Content, @unchecked Sendable {
 
     @ID(key: .id) var id: UUID?
     @Field(key: "externalId") var externalId: String?
+    @Field(key: "dataSource") var dataSource: String  // legacy_hockey, mn_hockey_hub, etc.
     @Field(key: "gameDate") var gameDate: Date  // The date of the game
     @Field(key: "visitorTeam") var visitorTeam: String?
     @Field(key: "visitorScore") var visitorScore: Int?
@@ -22,6 +23,7 @@ final class Game: Model, Content, @unchecked Sendable {
 
     init(
         externalId: String? = nil,
+        dataSource: String = "legacy_hockey",
         gameDate: Date,
         visitorTeam: String? = nil,
         visitorScore: Int? = nil,
@@ -33,6 +35,7 @@ final class Game: Model, Content, @unchecked Sendable {
         gameURL: String? = nil
     ) {
         self.externalId = externalId
+        self.dataSource = dataSource
         self.gameDate = gameDate
         self.visitorTeam = visitorTeam
         self.visitorScore = visitorScore

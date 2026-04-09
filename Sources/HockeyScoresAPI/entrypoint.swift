@@ -27,22 +27,39 @@ enum Entrypoint {
             // Serve files from Public/
             app.middleware.use(FileMiddleware(publicDirectory: app.directory.publicDirectory))
 
-            // Helper function to fetch and save scores
+            // Helper function to fetch scores from a specific source
             @Sendable
-            func fetchAndSaveScores(for date: Date, on db: any Database) async throws -> [ScoreItem] {
-                let scoresURL = URI(string: "https://www.legacy.hockey/schedule/day/league_instance/224377?subseason=948428")
-                let response = try await app.client.get(scoresURL)
+            func fetchScoresFromSource(
+                url: String,
+                parser: (String) -> [ScoreItem],
+                dataSource: String,
+                for date: Date,
+                on db: any Database
+            ) async throws -> [ScoreItem] {
+                let uri = URI(string: url)
+                let response = try await app.client.get(uri)
                 guard response.status == .ok, var body = response.body else {
                     return []
                 }
                 let bytes = body.readBytes(length: body.readableBytes) ?? []
                 let html = String(decoding: bytes, as: UTF8.self)
-                let items = ScoresParser.parseScores(from: html)
+                let items = parser(html)
 
-                // Save fetched scores to database with normalized date (midnight UTC)
+                // Save fetched scores to database with data source tracking
                 for item in items {
+                    // Check if game already exists (to avoid duplicates from same source)
+                    let existingGame = try await Game.query(on: db)
+                        .filter(\.$externalId, .equal, item.id ?? "")
+                        .filter(\.$gameDate, .greaterThanOrEqual, date)
+                        .filter(\.$gameDate, .lessThan, Calendar.current.date(byAdding: .day, value: 1, to: date) ?? date)
+                        .filter(\.$dataSource, .equal, dataSource)
+                        .first()
+                    
+                    guard existingGame == nil else { continue }  // Skip if already saved from this source
+                    
                     let game = Game(
                         externalId: item.id,
+                        dataSource: dataSource,
                         gameDate: date,
                         visitorTeam: item.visitorTeam,
                         visitorScore: item.visitorScore,
@@ -58,6 +75,46 @@ enum Entrypoint {
                 return items
             }
 
+            // Fetch and aggregate scores from all sources
+            @Sendable
+            func fetchAndSaveScoresFromAllSources(for date: Date, on db: any Database) async throws -> [ScoreItem] {
+                var allItems: [ScoreItem] = []
+                let legacyHockeyURL = "https://www.legacy.hockey/schedule/day/league_instance/224377?subseason=948428"
+                let mnHockeyHubURL = "https://stats.mnhockeyhub.com/schedule/day/league_instance/226701?subseason=954110"
+
+                // Fetch from legacy.hockey
+                do {
+                    let legacyItems = try await fetchScoresFromSource(
+                        url: legacyHockeyURL,
+                        parser: ScoresParser.parseScores,
+                        dataSource: "legacy_hockey",
+                        for: date,
+                        on: db
+                    )
+                    allItems.append(contentsOf: legacyItems)
+                    app.logger.info("Fetched \(legacyItems.count) games from legacy.hockey")
+                } catch {
+                    app.logger.warning("Failed to fetch from legacy.hockey: \(error)")
+                }
+
+                // Fetch from MN Hockey Hub
+                do {
+                    let mnItems = try await fetchScoresFromSource(
+                        url: mnHockeyHubURL,
+                        parser: MNHockeyHubParser.parseScores,
+                        dataSource: "mn_hockey_hub",
+                        for: date,
+                        on: db
+                    )
+                    allItems.append(contentsOf: mnItems)
+                    app.logger.info("Fetched \(mnItems.count) games from MN Hockey Hub")
+                } catch {
+                    app.logger.warning("Failed to fetch from MN Hockey Hub: \(error)")
+                }
+
+                return allItems
+            }
+
             app.get("scores") { req async throws -> [ScoreItem] in
                 // Normalize today's date to midnight UTC
                 let calendar = Calendar.current
@@ -65,7 +122,7 @@ enum Entrypoint {
                 let components = calendar.dateComponents([.year, .month, .day], from: today)
                 let normalizedToday = calendar.date(from: components) ?? today
                 
-                _ = try? await fetchAndSaveScores(for: normalizedToday, on: req.db)
+                _ = try? await fetchAndSaveScoresFromAllSources(for: normalizedToday, on: req.db)
                 let games = try await Game.query(on: req.db).all()
                 return games.map { $0.toScoreItem() }
             }

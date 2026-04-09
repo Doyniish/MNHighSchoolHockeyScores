@@ -5,6 +5,7 @@ struct CreateGame: AsyncMigration {
         try await database.schema("games")
             .id()
             .field("externalId", .string)
+            .field("dataSource", .string, .required)
             .field("gameDate", .date, .required)
             .field("visitorTeam", .string)
             .field("visitorScore", .int)
@@ -16,7 +17,7 @@ struct CreateGame: AsyncMigration {
             .field("gameURL", .string)
             .field("createdAt", .datetime)
             .field("updatedAt", .datetime)
-            .unique(on: "externalId", "gameDate")
+            .unique(on: "externalId", "dataSource", "gameDate")
             .create()
     }
 
